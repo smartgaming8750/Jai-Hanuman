@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIG ---
 # Replace with your actual token from @BotFather
-TOKEN = "8318488317:AAFeYYbaBBSKWQ2tU8l42ikKc76Bok9BC_k" 
+TOKEN = "8318488317:AAFDc5Nruj_wwtn7giiq38OK4auQtjX0xWU" 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 executor = ThreadPoolExecutor(max_workers=15)
 
