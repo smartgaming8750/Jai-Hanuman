@@ -7,7 +7,7 @@ from telebot import types
 from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIG ---
-TOKEN = "YOUR_BOT_TOKEN_HERE" 
+TOKEN = "8318488317:AAF-76qS6IXP8fncpd2y9gpiEXwtzHOdOLY" 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 executor = ThreadPoolExecutor(max_workers=20)
 
